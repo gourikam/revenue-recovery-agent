@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — AI Revenue Recovery Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0a0f1c;
+    --panel:#121a2e;
+    --panel-2:#0e1526;
+    --line:#25304a;
+    --paper:#e8e6de;
+    --paper-dim:#9aa3b8;
+    --gold:#e8b94a;
+    --mint:#3ecf8e;
+    --rust:#c1443a;
+    --rust-glow: rgba(193,68,58,0.18);
+    --mint-glow: rgba(62,207,142,0.18);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .serif{ font-family:'Fraunces', serif; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:0 24px; }
+
+  /* subtle grid backdrop, ledger-paper texture without going cream */
+  .grid-bg{
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 64px 64px;
+    background-position: -1px -1px;
+    opacity:0.35;
+    position:absolute; inset:0; pointer-events:none;
+  }
+
+  header{ position:relative; padding:100px 0 60px; overflow:hidden; }
+  .eyebrow{
+    font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--gold); display:flex; align-items:center; gap:10px; margin-bottom:28px;
+  }
+  .eyebrow::before{ content:''; width:6px; height:6px; background:var(--gold); display:inline-block; border-radius:1px; }
+
+  h1{
+    font-size:clamp(38px, 6vw, 68px);
+    font-weight:500;
+    line-height:1.05;
+    letter-spacing:-0.01em;
+    max-width:820px;
+    color:#f5f3ec;
+  }
+  h1 em{ font-style:italic; color:var(--gold); }
+
+  .sub{
+    margin-top:24px; max-width:560px; color:var(--paper-dim);
+    font-size:15px; line-height:1.7;
+  }
+
+  .cta-row{ display:flex; gap:14px; margin-top:40px; flex-wrap:wrap; }
+  .btn{
+    display:inline-flex; align-items:center; gap:8px;
+    padding:13px 22px; font-size:13px; letter-spacing:0.04em;
+    text-decoration:none; border-radius:2px; transition:all .18s ease;
+    font-family:'IBM Plex Mono', monospace; font-weight:500;
+  }
+  .btn-primary{ background:var(--gold); color:var(--ink); }
+  .btn-primary:hover{ background:#f2c862; transform:translateY(-1px); }
+  .btn-ghost{ border:1px solid var(--line); color:var(--paper); }
+  .btn-ghost:hover{ border-color:var(--paper-dim); }
+
+  /* ---- LEDGER TICKER (signature element) ---- */
+  .ledger{
+    margin-top:64px; border:1px solid var(--line); background:var(--panel);
+    border-radius:3px; overflow:hidden; position:relative;
+  }
+  .ledger-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 18px; border-bottom:1px solid var(--line);
+    font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--paper-dim);
+  }
+  .live-dot{ width:6px; height:6px; border-radius:50%; background:var(--mint); display:inline-block; margin-right:6px; animation:pulse 1.8s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  .ledger-body{ height:280px; overflow:hidden; position:relative; }
+  .ledger-body::after{
+    content:''; position:absolute; bottom:0; left:0; right:0; height:60px;
+    background:linear-gradient(transparent, var(--panel));
+    pointer-events:none;
+  }
+  .ledger-track{ animation: scrollUp 22s linear infinite; }
+  .ledger-track:hover{ animation-play-state: paused; }
+  @keyframes scrollUp{ 0%{ transform:translateY(0);} 100%{ transform:translateY(-50%); } }
+
+  .row{
+    display:grid; grid-template-columns: 100px 1fr 150px 100px;
+    gap:12px; padding:11px 18px; font-size:12.5px;
+    border-bottom:1px solid rgba(37,48,74,0.5); align-items:center;
+  }
+  .row .id{ color:var(--paper-dim); }
+  .row .cause{ color:#d8d5c9; }
+  .row .amt{ color:var(--gold); text-align:right; }
+  .stamp{
+    justify-self:end; font-size:10px; letter-spacing:0.08em; padding:4px 8px;
+    border-radius:2px; font-weight:600; transform:rotate(-2deg);
+  }
+  .stamp.recovered{ background:var(--mint-glow); color:var(--mint); border:1px solid rgba(62,207,142,0.4); }
+  .stamp.escalated{ background:var(--rust-glow); color:var(--rust); border:1px solid rgba(193,68,58,0.4); }
+  .stamp.pending{ background:rgba(232,185,74,0.12); color:var(--gold); border:1px solid rgba(232,185,74,0.35); }
+
+  /* ---- sections ---- */
+  section{ position:relative; padding:80px 0; border-top:1px solid var(--line); }
+  .section-label{
+    font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--paper-dim);
+    margin-bottom:18px;
+  }
+  h2{ font-family:'Fraunces', serif; font-weight:500; font-size:clamp(26px,3.4vw,36px); color:#f5f3ec; max-width:640px; }
+  p.lead{ color:var(--paper-dim); font-size:14.5px; max-width:600px; margin-top:16px; line-height:1.8; }
+
+  .stages{ margin-top:48px; display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
+  .stage{ background:var(--ink); padding:26px 20px; }
+  .stage .n{ font-family:'Fraunces', serif; font-size:26px; color:var(--gold); }
+  .stage h3{ font-size:13px; letter-spacing:0.03em; margin-top:10px; color:#f0eee6; font-weight:600; }
+  .stage p{ font-size:12px; color:var(--paper-dim); margin-top:8px; line-height:1.6; }
+
+  .proof{ margin-top:48px; display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); }
+  .stat{ background:var(--panel); padding:32px 24px; }
+  .stat .val{ font-family:'Fraunces', serif; font-size:38px; color:var(--mint); }
+  .stat.rust .val{ color:var(--rust); }
+  .stat .label{ font-size:11.5px; color:var(--paper-dim); margin-top:8px; letter-spacing:0.02em; }
+
+  .rule-box{
+    margin-top:40px; border:1px solid var(--rust); background:var(--rust-glow);
+    padding:20px 22px; border-radius:2px; font-size:13px; color:#f0d9d6;
+  }
+  .rule-box b{ color:#f7b8b0; }
+
+  footer{ padding:60px 0 80px; border-top:1px solid var(--line); }
+  .foot-row{ display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px; }
+  .foot-row .stack{ font-size:11px; color:var(--paper-dim); letter-spacing:0.04em; }
+  .foot-row a{ color:var(--paper-dim); text-decoration:none; font-size:12px; }
+  .foot-row a:hover{ color:var(--paper); }
+
+  @media (max-width:720px){
+    .stages{ grid-template-columns:1fr 1fr; }
+    .proof{ grid-template-columns:1fr; }
+    .row{ grid-template-columns:70px 1fr 90px; }
+    .row .amt{ display:none; }
+  }
+  [data-reveal]{ opacity:0; transform:translateY(14px); transition:opacity .6s ease, transform .6s ease; }
+  [data-reveal].in{ opacity:1; transform:translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="grid-bg"></div>
+  <div class="wrap" style="position:relative;">
+    <div class="eyebrow">Razorpay AI Buildathon · Track 03 — Revenue Recovery</div>
+    <h1>Every rupee gets<br><em>a paper trail.</em></h1>
+    <p class="sub">A failed payment isn't a dead end — it's an unfiled case. This agent diagnoses why it failed, decides one bounded action, executes it against a real Razorpay test-mode payment link, and logs every step. Nothing happens off the record.</p>
+    <div class="cta-row">
+      <a href="#" class="btn btn-primary">▶ Watch the 5-min demo</a>
+      <a href="#" class="btn btn-ghost">View source on GitHub</a>
+    </div>
+
+    <div class="ledger" data-reveal>
+      <div class="ledger-head">
+        <span><span class="live-dot"></span>audit_log — live</span>
+        <span>case_id · root_cause · amount · outcome</span>
+      </div>
+      <div class="ledger-body">
+        <div class="ledger-track" id="ledgerTrack"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="section-label">01 — The problem</div>
+    <h2 data-reveal>Recovery is usually a spreadsheet someone forgets to open.</h2>
+    <p class="lead" data-reveal>Failed subscription payments quietly leak revenue every day — a declined card, a timed-out gateway, an expired auth. Most teams handle this manually, inconsistently, or not at all. The ones who automate it often can't say <em>why</em> the system did what it did, which makes it unsafe to trust with real money.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-label">02 — How it works</div>
+    <h2 data-reveal>Four stages. Every one of them logged.</h2>
+    <div class="stages" data-reveal>
+      <div class="stage">
+        <div class="n">01</div>
+        <h3>DIAGNOSE</h3>
+        <p>Classifies the raw failure code into a root cause — rule-based first, LLM fallback for the ambiguous ones. Every classification is explainable.</p>
+      </div>
+      <div class="stage">
+        <div class="n">02</div>
+        <h3>DECIDE</h3>
+        <p>Picks exactly one bounded action. Hard stopping rules first: never retry a fraud-flagged card, max 3 retries, low-confidence → human.</p>
+      </div>
+      <div class="stage">
+        <div class="n">03</div>
+        <h3>EXECUTE</h3>
+        <p>Creates a real Razorpay test-mode payment link via the API and sends a Hinglish reminder. No silent auto-charging — that's not how card networks work.</p>
+      </div>
+      <div class="stage">
+        <div class="n">04</div>
+        <h3>LOG</h3>
+        <p>Every decision, reason, and outcome is written to an audit trail. Nothing is deleted, nothing is hidden after the fact.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-label">03 — Measured, not claimed</div>
+    <h2 data-reveal>Results from a 75-case synthetic batch.</h2>
+    <p class="lead" data-reveal>Synthetic failure data, modeled on real Razorpay webhook failure codes — because no buildathon team has access to a live merchant's failure history. What's not synthetic: the diagnosis logic, the decision rules, the audit trail, and the Razorpay API calls.</p>
+    <div class="proof" data-reveal>
+      <div class="stat">
+        <div class="val">51.4%</div>
+        <div class="label">recovery rate — ₹1,11,852 of ₹2,17,669 at risk</div>
+      </div>
+      <div class="stat rust">
+        <div class="val">53 / 0%</div>
+        <div class="label">fraud-flagged cases — correctly hard-stopped, zero attempts</div>
+      </div>
+      <div class="stat">
+        <div class="val">100%</div>
+        <div class="label">of decisions carry a logged, human-readable reason</div>
+      </div>
+    </div>
+    <div class="rule-box" data-reveal>
+      <b>Why the 0% matters more than the 51%:</b> a fraud-flagged card that the agent never touches is harder to fake than a good recovery number. The stopping rule is the evidence.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-row">
+    <div class="stack">FastAPI · Streamlit · SQLite · Razorpay Test API · Groq (Llama 3.1)</div>
+    <div style="display:flex; gap:24px;">
+      <a href="#">GitHub →</a>
+      <a href="#">Live dashboard →</a>
+      <a href="#">Demo video →</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Build ledger ticker from realistic sample rows, duplicated for seamless loop
+  const rows = [
+    { id:'#a1f9c2', cause:'TRANSIENT_GATEWAY_ISSUE', amt:'₹1,499', stamp:'recovered', label:'RECOVERED' },
+    { id:'#7bd410', cause:'CARD_BLOCKED_FRAUD',       amt:'₹4,999', stamp:'escalated', label:'ESCALATED' },
+    { id:'#e02c88', cause:'AUTH_FAILURE',             amt:'₹999',   stamp:'pending',   label:'LINK SENT' },
+    { id:'#c93a71', cause:'INSUFFICIENT_FUNDS',       amt:'₹2,499', stamp:'recovered', label:'RECOVERED' },
+    { id:'#41f0d5', cause:'CARD_EXPIRED',             amt:'₹299',   stamp:'pending',   label:'LINK SENT' },
+    { id:'#9a2e6c', cause:'CARD_BLOCKED_FRAUD',       amt:'₹9,999', stamp:'escalated', label:'ESCALATED' },
+    { id:'#b70f43', cause:'LIMIT_EXCEEDED',           amt:'₹1,999', stamp:'recovered', label:'RECOVERED' },
+    { id:'#5dc821', cause:'GENERIC_DECLINE',          amt:'₹499',   stamp:'pending',   label:'LINK SENT' },
+  ];
+  const track = document.getElementById('ledgerTrack');
+  const build = () => rows.map(r => `
+    <div class="row">
+      <span class="id">${r.id}</span>
+      <span class="cause">${r.cause}</span>
+      <span class="amt">${r.amt}</span>
+      <span class="stamp ${r.stamp}">${r.label}</span>
+    </div>`).join('');
+  track.innerHTML = build() + build(); // duplicate for seamless scroll loop
+
+  // scroll reveal
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('[data-reveal]').forEach(el => io.observe(el));
+</script>
+
+</body>
+</html>

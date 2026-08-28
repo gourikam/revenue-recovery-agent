@@ -9,34 +9,71 @@ identically either way.
 import random
 from datetime import datetime
 
-from app import db, diagnosis, decision, messaging
+from app import db, diagnosis, decision, messaging, razorpay_client
 
 random.seed(7)  # reproducible synthetic outcomes for demo consistency
 
 
-def execute_action(case: dict, action: str, message: str) -> dict:
+def execute_action(case: dict, action: str, message: str, reason: str) -> dict:
     """
-    Simulates calling Razorpay test-mode APIs / SMS-WhatsApp gateway.
-    Replace the random outcome with real razorpay-python calls, e.g.:
-        client.payment_link.create({...})
-        client.payment.capture(payment_id, amount)
-    Recovery likelihood here is intentionally tied to how recoverable the
-    underlying case is (via _synthetic_ease), same as a real system would see
-    easy cases recover more often than hard ones.
-    """
-    ease = case.get("_synthetic_ease", "medium")
-    recovery_prob = {"easy": 0.75, "medium": 0.45, "hard": 0.15, "impossible": 0.0}[ease]
+    Tries a REAL Razorpay test-mode Payment Link first (if RAZORPAY_KEY_ID/SECRET
+    are configured). Falls back to a simulated outcome if Razorpay isn't
+    configured or the API call fails -- so the app always runs end to end.
 
+    Real path: link is created via the API and starts 'pending' -- whether it's
+    actually 'recovered' depends on the customer paying it, checked later by
+    check_pending_links(). This is intentionally honest: we don't fabricate a
+    'recovered' status for a real link nobody has paid yet.
+    """
     if action == "escalate_to_human":
-        return {"status": "escalated", "recovered_amount": 0}
+        return {"status": "escalated", "recovered_amount": 0, "is_live": False,
+                "payment_link_id": None, "payment_link_url": None}
 
     if action == "no_action_stop":
-        return {"status": "stopped", "recovered_amount": 0}
+        return {"status": "stopped", "recovered_amount": 0, "is_live": False,
+                "payment_link_id": None, "payment_link_url": None}
 
+    # retry_payment, send_payment_link, send_hinglish_reminder all funnel through
+    # a real payment link when Razorpay is configured (see module docstring for why)
+    link = razorpay_client.create_payment_link(case, description=reason)
+    if link is not None:
+        return {"status": "pending", "recovered_amount": 0, "is_live": True,
+                "payment_link_id": link["id"], "payment_link_url": link["short_url"]}
+
+    # --- fallback: simulated outcome, no Razorpay keys configured ---
+    ease = case.get("_synthetic_ease", "medium")
+    recovery_prob = {"easy": 0.75, "medium": 0.45, "hard": 0.15, "impossible": 0.0}[ease]
     recovered = random.random() < recovery_prob
     if recovered:
-        return {"status": "recovered", "recovered_amount": case["amount_inr"]}
-    return {"status": "failed_retry", "recovered_amount": 0}
+        return {"status": "recovered", "recovered_amount": case["amount_inr"], "is_live": False,
+                "payment_link_id": None, "payment_link_url": None}
+    return {"status": "failed_retry", "recovered_amount": 0, "is_live": False,
+            "payment_link_id": None, "payment_link_url": None}
+
+
+def check_pending_links() -> dict:
+    """
+    Polls Razorpay for every case with a real pending payment link and updates
+    its status if the customer has paid, cancelled, or let it expire.
+    Call this periodically (e.g. a 'Refresh' button in the dashboard) --
+    Razorpay doesn't push updates to this simple demo, so we pull.
+    """
+    pending = db.get_pending_live_cases()
+    updated = 0
+    for case in pending:
+        status = razorpay_client.fetch_payment_link_status(case["payment_link_id"])
+        if status is None:
+            continue
+        if status == "paid":
+            db.upsert_case({"case_id": case["case_id"], "execution_status": "recovered",
+                             "amount_recovered_inr": case["amount_inr"]})
+            db.log_event(case["case_id"], "execution", "REAL payment link paid by customer")
+            updated += 1
+        elif status in ("cancelled", "expired"):
+            db.upsert_case({"case_id": case["case_id"], "execution_status": "failed_retry"})
+            db.log_event(case["case_id"], "execution", f"REAL payment link {status}")
+            updated += 1
+    return {"checked": len(pending), "updated": updated}
 
 
 def process_case(raw_case: dict) -> dict:
@@ -54,16 +91,19 @@ def process_case(raw_case: dict) -> dict:
     dec = decision.decide(case_for_decision, diag)
     db.log_event(case_id, "decision", f"action={dec['action']} reason={dec['reason']}")
 
-    # 3. GENERATE MESSAGE + EXECUTE
+    # 3. EXECUTE (tries a real Razorpay payment link first; message is built after,
+    #    since it needs the real link if one was created)
+    result = execute_action(raw_case, dec["action"], message="", reason=dec["reason"])
+    db.log_event(case_id, "execution", f"status={result['status']} "
+                 f"recovered_amount={result['recovered_amount']} "
+                 f"live={result['is_live']}")
+
+    real_link = result.get("payment_link_url")
     message = ""
     if dec["action"] == "send_hinglish_reminder":
-        message = messaging.generate_hinglish_reminder(raw_case, diag["root_cause"])
-    elif dec["action"] == "send_payment_link":
-        message = messaging.generate_payment_link_message(raw_case, diag["root_cause"])
-
-    result = execute_action(raw_case, dec["action"], message)
-    db.log_event(case_id, "execution", f"status={result['status']} "
-                 f"recovered_amount={result['recovered_amount']}")
+        message = messaging.generate_hinglish_reminder(raw_case, diag["root_cause"], real_link=real_link)
+    elif dec["action"] in ("send_payment_link", "retry_payment") and real_link:
+        message = messaging.generate_payment_link_message(raw_case, diag["root_cause"], real_link=real_link)
 
     retry_count = current.get("retry_count", 0) + (1 if dec["action"] == "retry_payment" else 0)
 
@@ -88,6 +128,9 @@ def process_case(raw_case: dict) -> dict:
         "message_sent": message,
         "execution_status": result["status"],
         "amount_recovered_inr": result["recovered_amount"],
+        "payment_link_id": result.get("payment_link_id"),
+        "payment_link_url": result.get("payment_link_url"),
+        "is_live_razorpay": 1 if result.get("is_live") else 0,
     })
 
     return db.get_case(case_id)
@@ -109,6 +152,7 @@ def compute_metrics() -> dict:
     n_recovered = len([c for c in cases if c["execution_status"] == "recovered"])
     n_escalated = len([c for c in cases if c["execution_status"] == "escalated"])
     n_failed = len([c for c in cases if c["execution_status"] == "failed_retry"])
+    n_pending_live = len([c for c in cases if c["execution_status"] == "pending"])
 
     by_cause = {}
     for c in cases:
@@ -126,5 +170,6 @@ def compute_metrics() -> dict:
         "n_recovered": n_recovered,
         "n_escalated_unresolved": n_escalated,
         "n_failed_retry": n_failed,
+        "n_pending_live_links": n_pending_live,
         "by_root_cause": by_cause,
     }

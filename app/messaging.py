@@ -24,9 +24,9 @@ def _fake_payment_link(case_id: str) -> str:
     return f"https://rzp.io/l/test-{case_id[-8:]}"
 
 
-def generate_hinglish_reminder(case: dict, reason: str) -> str:
+def generate_hinglish_reminder(case: dict, reason: str, real_link: str = None) -> str:
     api_key = os.getenv("GROQ_API_KEY")
-    link = _fake_payment_link(case["case_id"])
+    link = real_link or _fake_payment_link(case["case_id"])
     if not api_key:
         return FALLBACK_HINGLISH_TEMPLATE.format(
             name=case["customer_name"].split()[0],
@@ -63,8 +63,8 @@ Keep it under 40 words, friendly, no pressure tactics, include the link as-is.""
         )
 
 
-def generate_payment_link_message(case: dict, reason: str) -> str:
-    link = _fake_payment_link(case["case_id"])
+def generate_payment_link_message(case: dict, reason: str, real_link: str = None) -> str:
+    link = real_link or _fake_payment_link(case["case_id"])
     return FALLBACK_PAYMENT_LINK_TEMPLATE.format(
         name=case["customer_name"].split()[0],
         amount=case["amount_inr"],
