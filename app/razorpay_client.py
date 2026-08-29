@@ -96,9 +96,12 @@ def verify_webhook_signature(payload_body: bytes, signature: str) -> bool:
     """
     secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
     if not secret:
+        print("[webhook] REJECTED: RAZORPAY_WEBHOOK_SECRET is not set in environment")
         return False
     client = get_client()
     if client is None:
+        print("[webhook] REJECTED: Razorpay client not configured -- check "
+              "RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET are set (not just the webhook secret)")
         return False
     try:
         client.utility.verify_webhook_signature(
@@ -106,7 +109,10 @@ def verify_webhook_signature(payload_body: bytes, signature: str) -> bool:
         )
         return True
     except Exception as e:
-        print(f"[razorpay_client] webhook signature verification failed: {e}")
+        print(f"[webhook] REJECTED: signature mismatch -- {e}. "
+              f"Check RAZORPAY_WEBHOOK_SECRET matches EXACTLY what's shown in "
+              f"Razorpay Dashboard > Settings > Webhooks for this webhook "
+              f"(secret_len={len(secret)}).")
         return False
 
 
