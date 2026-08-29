@@ -59,6 +59,7 @@ def init_db():
                 payment_link_id TEXT,           -- real Razorpay payment link id, if created
                 payment_link_url TEXT,          -- real Razorpay payment link url, if created
                 is_live_razorpay INTEGER DEFAULT 0,  -- 1 if this case used a real API call, 0 if simulated
+                source TEXT DEFAULT 'batch',    -- 'batch' (synthetic demo run) or 'webhook' (real Razorpay event)
 
                 updated_at TEXT
             )
@@ -118,6 +119,7 @@ def get_audit_log(case_id: str = None):
             rows = conn.execute("SELECT * FROM audit_log ORDER BY timestamp").fetchall()
         return [dict(r) for r in rows]
 
+
 def get_pending_live_cases():
     """Cases with a real payment link still awaiting payment -- used for polling."""
     with get_conn() as conn:
@@ -125,7 +127,8 @@ def get_pending_live_cases():
             "SELECT * FROM cases WHERE is_live_razorpay=1 AND execution_status='pending'"
         ).fetchall()
         return [dict(r) for r in rows]
-    
+
+
 def reset_db():
     with get_conn() as conn:
         conn.execute("DROP TABLE IF EXISTS cases")

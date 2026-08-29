@@ -50,6 +50,33 @@ main.py              (FastAPI)  → and an honest exception list of
 
 Every decision returns a human-readable `reason` — nothing happens silently.
 
+## Real-time mode (webhook) vs demo mode (batch)
+
+The agent has two entry points into the same pipeline:
+
+- **`POST /run-batch`** (or the dashboard's "Run new batch" button) — generates
+  a synthetic batch and processes it. This is the reliable, always-works demo
+  path — use this for your pitch video.
+- **`POST /webhook/razorpay`** — a real-time endpoint that receives Razorpay's
+  actual `payment.failed` webhook the moment a payment fails, verifies its
+  signature, and runs it through the identical diagnose → decide → execute →
+  log pipeline. No polling, no manual batch trigger.
+
+To wire up the real webhook:
+1. In Razorpay Dashboard → Settings → Webhooks, create a webhook subscribed to
+   `payment.failed`, and copy the secret it generates into `.env` as
+   `RAZORPAY_WEBHOOK_SECRET`.
+2. Razorpay can't reach `localhost`, so expose your local FastAPI server
+   during development: `ngrok http 8000`, then set the webhook URL in the
+   Razorpay dashboard to `https://<your-ngrok-id>.ngrok.io/webhook/razorpay`.
+3. Trigger a real test-mode payment failure (e.g. using a
+   [Razorpay test card](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
+   designed to fail) and watch the case appear in your dashboard automatically.
+
+Every webhook-sourced case is tagged `source: webhook` in the audit trail and
+counted separately in the dashboard, so it's always clear which cases came
+from a real event versus the demo batch.
+
 ## Running it
 
 ```bash
@@ -79,12 +106,21 @@ test-mode outcomes so you can demo without live keys.
 
 ## What's simulated vs real
 
-- Razorpay API calls (`execute_action` in `recovery_engine.py`) are stubbed
-  with realistic probability-based outcomes. Swap in real
-  `razorpay-python` SDK calls (`payment_link.create`, retry logic) once
-  you have test-mode keys wired to a live checkout flow.
-- Everything else — diagnosis, decision logic, stopping rules, audit trail,
-  metrics — runs for real.
+- **With `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set in `.env`:** the agent
+  creates a real Razorpay test-mode Payment Link via the API for every
+  retry/reminder/payment-link action. Click **"Check real payment links"**
+  in the dashboard to poll Razorpay and see if a link was actually paid
+  (use a [Razorpay test card](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
+  to complete one for a live demo).
+- **Without keys:** falls back to a probability-based simulated outcome so
+  the whole pipeline still runs end to end with zero setup.
+- Note on design: Razorpay (like all card networks, per RBI rules) doesn't
+  allow silently re-charging a saved card without a pre-authorized
+  recurring mandate — so "retry" here realistically means generating a
+  fresh, real payment link rather than a hidden auto-charge. This is a
+  deliberate, honest choice, not a shortcut.
+- Diagnosis, decision logic, stopping rules, and the audit trail are 100%
+  real regardless of Razorpay configuration.
 
 ## Next steps if extending
 

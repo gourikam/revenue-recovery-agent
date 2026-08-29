@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import db, synthetic_data, recovery_engine
+from app import db, synthetic_data, recovery_engine, razorpay_client
 
 app = FastAPI(title="AI Revenue Recovery Agent", version="0.1.0")
 
@@ -20,7 +20,7 @@ def root():
     return {
         "service": "AI Revenue Recovery Agent",
         "endpoints": ["/generate-batch", "/run-batch", "/cases", "/cases/{case_id}/audit",
-                      "/metrics", "/reset"],
+                      "/metrics", "/check-pending-links", "/webhook/razorpay", "/reset"],
     }
 
 
@@ -56,6 +56,50 @@ def case_audit(case_id: str):
 @app.get("/metrics")
 def metrics():
     return recovery_engine.compute_metrics()
+
+
+@app.post("/check-pending-links")
+def check_pending_links():
+    """Polls Razorpay for real payment links awaiting customer payment and updates status."""
+    return recovery_engine.check_pending_links()
+
+
+@app.post("/webhook/razorpay")
+async def razorpay_webhook(request: Request, x_razorpay_signature: str = Header(None)):
+    """
+    Real-time entry point: Razorpay POSTs here the moment a payment fails --
+    no polling, no batch, no synthetic data. This is what makes the agent a
+    production-shaped system rather than a one-off script run on demand.
+
+    Setup (required before this will receive anything):
+    1. Set RAZORPAY_WEBHOOK_SECRET in .env (create the webhook + secret in
+       Razorpay Dashboard -> Settings -> Webhooks, subscribe to 'payment.failed').
+    2. Razorpay can't reach localhost -- expose this server publicly during
+       development with a tunnel, e.g.: `ngrok http 8000`, then point the
+       Razorpay webhook URL at https://<ngrok-id>.ngrok.io/webhook/razorpay
+    """
+    raw_body = await request.body()
+
+    if not x_razorpay_signature:
+        raise HTTPException(status_code=400, detail="Missing X-Razorpay-Signature header")
+
+    if not razorpay_client.verify_webhook_signature(raw_body, x_razorpay_signature):
+        # Reject unverified payloads outright -- never process a webhook body
+        # we can't cryptographically confirm came from Razorpay.
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    import json
+    payload = json.loads(raw_body)
+    raw_case = razorpay_client.parse_failed_payment_event(payload)
+
+    if raw_case is None:
+        # Not a payment.failed event (Razorpay sends many event types to the
+        # same URL) -- acknowledge receipt so Razorpay doesn't retry, but do nothing.
+        return {"status": "ignored", "reason": "not a payment.failed event"}
+
+    result = recovery_engine.process_case(raw_case, source="webhook")
+    return {"status": "processed", "case_id": result["case_id"],
+            "root_cause": result["root_cause"], "intervention": result["intervention"]}
 
 
 @app.post("/reset")

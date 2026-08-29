@@ -76,7 +76,7 @@ def check_pending_links() -> dict:
     return {"checked": len(pending), "updated": updated}
 
 
-def process_case(raw_case: dict) -> dict:
+def process_case(raw_case: dict, source: str = "batch") -> dict:
     case_id = raw_case["case_id"]
 
     # 1. DIAGNOSE
@@ -131,6 +131,7 @@ def process_case(raw_case: dict) -> dict:
         "payment_link_id": result.get("payment_link_id"),
         "payment_link_url": result.get("payment_link_url"),
         "is_live_razorpay": 1 if result.get("is_live") else 0,
+        "source": source,
     })
 
     return db.get_case(case_id)

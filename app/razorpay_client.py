@@ -13,6 +13,7 @@ back to simulated behavior -- so the app still runs with zero setup.
 """
 import os
 import razorpay
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -83,3 +84,62 @@ def fetch_payment_link_status(link_id: str) -> str | None:
 
 def is_configured() -> bool:
     return get_client() is not None
+
+
+# --- WEBHOOK HANDLING (real-time, replaces polling a synthetic batch) ---
+
+def verify_webhook_signature(payload_body: bytes, signature: str) -> bool:
+    """
+    Verifies the X-Razorpay-Signature header against RAZORPAY_WEBHOOK_SECRET.
+    This is mandatory before trusting ANY webhook payload -- otherwise anyone
+    who finds your webhook URL could inject fake 'failed payment' events.
+    """
+    secret = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+    if not secret:
+        return False
+    client = get_client()
+    if client is None:
+        return False
+    try:
+        client.utility.verify_webhook_signature(
+            payload_body.decode("utf-8"), signature, secret
+        )
+        return True
+    except Exception as e:
+        print(f"[razorpay_client] webhook signature verification failed: {e}")
+        return False
+
+
+def parse_failed_payment_event(payload: dict) -> dict | None:
+    """
+    Turns a Razorpay 'payment.failed' webhook payload into the same shape
+    process_case() expects from a synthetic batch row. Returns None if the
+    event isn't a payment failure we care about.
+    """
+    event = payload.get("event")
+    if event != "payment.failed":
+        return None
+
+    entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+    if not entity:
+        return None
+
+    payment_id = entity.get("id", "unknown")
+    raw_created = entity.get("created_at")
+    created_at = (
+        datetime.utcfromtimestamp(raw_created).isoformat()
+        if isinstance(raw_created, (int, float)) else datetime.utcnow().isoformat()
+    )
+    return {
+        "case_id": f"case_{payment_id}",
+        "payment_id": payment_id,
+        "subscription_id": entity.get("subscription_id"),
+        # Razorpay's payment.failed payload rarely includes the customer's name --
+        # only contact/email -- so we fall back gracefully rather than guessing.
+        "customer_name": entity.get("notes", {}).get("customer_name", "Customer"),
+        "customer_phone": entity.get("contact", "unknown"),
+        "amount_inr": round(entity.get("amount", 0) / 100, 2),  # paise -> INR
+        "raw_failure_code": entity.get("error_code", "UNKNOWN"),
+        "raw_failure_description": entity.get("error_description", "Unknown failure"),
+        "created_at": created_at,
+    }

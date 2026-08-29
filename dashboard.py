@@ -18,6 +18,17 @@ else:
     st.info("⚪ SIMULATED MODE — no Razorpay keys detected in .env. Outcomes are "
             "modeled with realistic probabilities. Add RAZORPAY_KEY_ID/SECRET to go live.")
 
+with st.expander("📡 Real-time webhook endpoint (advanced — receives live Razorpay events)"):
+    st.write(
+        "This app also exposes `POST /webhook/razorpay` on the FastAPI backend "
+        "(`uvicorn app.main:app`). Point a Razorpay webhook at it (subscribed to "
+        "`payment.failed`) and cases will appear below automatically as real "
+        "payments fail — no batch button needed. Razorpay can't reach `localhost`, "
+        "so expose the port with a tunnel (e.g. `ngrok http 8000`) during local dev, "
+        "and set `RAZORPAY_WEBHOOK_SECRET` in `.env` — the endpoint rejects any "
+        "payload that isn't cryptographically verified."
+    )
+
 col_a, col_b, col_c = st.columns([1, 1, 2])
 with col_a:
     n = st.number_input("Batch size", min_value=10, max_value=300, value=75, step=5)
@@ -47,13 +58,16 @@ if not cases:
     st.stop()
 
 metrics = recovery_engine.compute_metrics()
+n_webhook_cases = len([c for c in cases if c.get("source") == "webhook"])
 
 # --- HEADLINE METRICS ---
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Total at risk", f"₹{metrics['total_amount_at_risk_inr']:,.0f}")
 m2.metric("Recovered", f"₹{metrics['total_amount_recovered_inr']:,.0f}")
 m3.metric("Recovery rate", f"{metrics['recovery_rate_pct']}%")
 m4.metric("Escalated (unresolved)", metrics["n_escalated_unresolved"])
+m5.metric("🔴 Live webhook cases", n_webhook_cases,
+          help="Cases that arrived via a real Razorpay payment.failed webhook, not the demo batch button.")
 
 st.divider()
 
