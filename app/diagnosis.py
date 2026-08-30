@@ -20,7 +20,7 @@ ROOT_CAUSES = {
     "AUTH_FAILURE": ["cvv", "3d secure", "authentication"],
     "TRANSIENT_GATEWAY_ISSUE": ["timeout", "unreachable", "server error"],
     "LIMIT_EXCEEDED": ["limit exceeded"],
-    "GENERIC_DECLINE": ["declined"],
+    "GENERIC_DECLINE": ["declined", "payment failed"],
 }
 
 # Which root causes are safe to auto-retry vs never retry

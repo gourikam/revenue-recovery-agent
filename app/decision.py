@@ -36,6 +36,20 @@ def decide(case: dict, diagnosis: dict) -> dict:
             "stopping_reason": "fraud_flag_hard_stop",
         }
 
+    # --- Unrecognized or low-confidence diagnosis: escalate BEFORE any money
+    # action, never guess. This check must come before the recoverability
+    # check below -- otherwise an UNKNOWN cause (is_recoverable defaults to
+    # False) would incorrectly fall into the "not recoverable -> send a
+    # payment link" branch instead of going to a human. ---
+    if cause == "UNKNOWN" or diagnosis["root_cause_confidence"] < 0.5:
+        return {
+            "action": "escalate_to_human",
+            "reason": f"Diagnosis confidence too low or cause unrecognized ('{cause}', "
+                      f"confidence={diagnosis['root_cause_confidence']}). Routing to "
+                      f"human rather than guessing with money actions.",
+            "stopping_reason": "low_confidence_hard_stop",
+        }
+
     if not recoverable:
         return {
             "action": "send_payment_link",
