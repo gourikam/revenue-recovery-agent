@@ -136,13 +136,18 @@ def parse_failed_payment_event(payload: dict) -> dict | None:
         datetime.utcfromtimestamp(raw_created).isoformat()
         if isinstance(raw_created, (int, float)) else datetime.utcnow().isoformat()
     )
+    # Razorpay sends `notes` as an empty list [] when nothing was set, not an
+    # empty dict -- so we can't assume .get() is available on it.
+    notes = entity.get("notes", {})
+    customer_name = notes.get("customer_name", "Customer") if isinstance(notes, dict) else "Customer"
+
     return {
         "case_id": f"case_{payment_id}",
         "payment_id": payment_id,
         "subscription_id": entity.get("subscription_id"),
         # Razorpay's payment.failed payload rarely includes the customer's name --
         # only contact/email -- so we fall back gracefully rather than guessing.
-        "customer_name": entity.get("notes", {}).get("customer_name", "Customer"),
+        "customer_name": customer_name,
         "customer_phone": entity.get("contact", "unknown"),
         "amount_inr": round(entity.get("amount", 0) / 100, 2),  # paise -> INR
         "raw_failure_code": entity.get("error_code", "UNKNOWN"),
