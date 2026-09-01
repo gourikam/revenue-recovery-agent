@@ -20,8 +20,15 @@ def root():
     return {
         "service": "AI Revenue Recovery Agent",
         "endpoints": ["/generate-batch", "/run-batch", "/cases", "/cases/{case_id}/audit",
-                      "/metrics", "/check-pending-links", "/webhook/razorpay", "/reset"],
+                      "/metrics", "/check-pending-links", "/webhook/razorpay", "/reset", "/status"],
     }
+
+
+@app.get("/status")
+def status():
+    """Lets any client (e.g. the dashboard) know if this backend has real Razorpay
+    keys configured, without needing local access to razorpay_client itself."""
+    return {"razorpay_configured": razorpay_client.is_configured()}
 
 
 @app.post("/generate-batch")
