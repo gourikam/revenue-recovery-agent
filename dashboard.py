@@ -153,59 +153,58 @@ m5.metric("Live webhook cases", n_webhook_cases,
 
 st.divider()
 
-col1, col2 = st.columns(2)
 df_cases = pd.DataFrame(cases)
 
-with col1:
-    st.subheader("Outcome breakdown")
-    status_counts = df_cases["execution_status"].value_counts().reset_index()
-    status_counts.columns = ["status", "count"]
-    fig = px.pie(status_counts, names="status", values="count", hole=0.4)
-    fig.update_layout(font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"))
-    st.plotly_chart(fig, use_container_width=True)
+st.subheader("Outcome breakdown")
+status_counts = df_cases["execution_status"].value_counts().reset_index()
+status_counts.columns = ["status", "count"]
+fig = px.pie(status_counts, names="status", values="count", hole=0.4)
+fig.update_layout(font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"))
+st.plotly_chart(fig, use_container_width=True)
 
-with col2:
-    st.subheader("Recovery rate by root cause")
-    rows = []
-    for cause, d in metrics["by_root_cause"].items():
-        rate = round(100 * d["recovered"] / d["count"], 1) if d["count"] else 0
-        rows.append({"root_cause": cause, "cases": d["count"], "recovered": d["recovered"], "rate_%": rate})
-    df_cause = pd.DataFrame(rows).sort_values("cases", ascending=False).reset_index(drop=True)
+st.subheader("Recovery rate by root cause")
+rows = []
+for cause, d in metrics["by_root_cause"].items():
+    rate = round(100 * d["recovered"] / d["count"], 1) if d["count"] else 0
+    rows.append({"root_cause": cause, "cases": d["count"], "recovered": d["recovered"], "rate_%": rate})
+df_cause = pd.DataFrame(rows).sort_values("cases", ascending=False).reset_index(drop=True)
 
-    is_hard_stop = df_cause["root_cause"] == "CARD_BLOCKED_FRAUD"
-    labels = [
-        f"{c} cases · {r}%" + (" (hard stop)" if hs else "")
-        for c, r, hs in zip(df_cause["cases"], df_cause["rate_%"], is_hard_stop)
-    ]
-    colors = ["#ef4444" if hs else "#60a5fa" for hs in is_hard_stop]
+is_hard_stop = df_cause["root_cause"] == "CARD_BLOCKED_FRAUD"
+labels = [
+    f"{c} cases · {r}%" + (" (hard stop)" if hs else "")
+    for c, r, hs in zip(df_cause["cases"], df_cause["rate_%"], is_hard_stop)
+]
+colors = ["#ef4444" if hs else "#60a5fa" for hs in is_hard_stop]
 
-    # Built with graph_objects (single trace) rather than px.bar(color=...), which
-    # splits data into one trace per color group and can misalign per-bar text
-    # arrays across traces -- this keeps each bar's label/color tied to itself.
-    fig2 = go.Figure(go.Bar(
-        x=df_cause["root_cause"], y=df_cause["rate_%"],
-        text=labels, textposition="outside",
-        textfont=dict(family="IBM Plex Mono, monospace", size=16, color="#e8e6de"),
-        marker_color=colors, cliponaxis=False,
-    ))
-    fig2.update_layout(
-        font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"),
-        yaxis=dict(
-            title=dict(text="rate_%", font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de")),
-            tickfont=dict(family="IBM Plex Mono, monospace", size=12, color="#e8e6de"),
-            range=[0, max(df_cause["rate_%"].max() * 1.25, 15)],
-        ),
-        xaxis=dict(
-            title=dict(text="root_cause", font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de")),
-            tickfont=dict(family="IBM Plex Mono, monospace", size=12, color="#e8e6de"),
-        ),
-        showlegend=False,
-        margin=dict(t=40),
-    )
+# Built with graph_objects (single trace) rather than px.bar(color=...), which
+# splits data into one trace per color group and can misalign per-bar text
+# arrays across traces -- this keeps each bar's label/color tied to itself.
+fig2 = go.Figure(go.Bar(
+    x=df_cause["root_cause"], y=df_cause["rate_%"],
+    text=labels, textposition="outside",
+    textfont=dict(family="IBM Plex Mono, monospace", size=15, color="#e8e6de"),
+    outsidetextfont=dict(family="IBM Plex Mono, monospace", size=15, color="#e8e6de"),
+    marker_color=colors, cliponaxis=False,
+))
+fig2.update_layout(
+    font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"),
+    height=480,  # full-width, taller chart -- 7 category labels need real room
+    yaxis=dict(
+        title=dict(text="rate_%", font=dict(family="IBM Plex Mono, monospace", size=14, color="#e8e6de")),
+        tickfont=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"),
+        range=[0, max(df_cause["rate_%"].max() * 1.3, 15)],
+    ),
+    xaxis=dict(
+        title=dict(text="root_cause", font=dict(family="IBM Plex Mono, monospace", size=14, color="#e8e6de")),
+        tickfont=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"),
+    ),
+    showlegend=False,
+    margin=dict(t=50, b=120),  # extra bottom margin for the angled category labels
+)
 
-    st.plotly_chart(fig2, use_container_width=True)
-    st.caption("Red bar = a hard stopping rule (never auto-recover a fraud-flagged card), "
-               "not a data gap.")
+st.plotly_chart(fig2, use_container_width=True)
+st.caption("Red bar = a hard stopping rule (never auto-recover a fraud-flagged card), "
+           "not a data gap.")
 
 st.divider()
 
