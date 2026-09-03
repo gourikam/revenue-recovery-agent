@@ -14,10 +14,6 @@ st.markdown("""
 
 html, body, [class*="css"] { font-family: 'IBM Plex Mono', monospace; }
 h1, h2, h3 { font-family: 'Fraunces', serif !important; font-weight: 500 !important; }
-/* Scope away from Plotly's embedded SVG charts -- they set their own fonts
-   explicitly via update_layout(font=...) in Python, and letting this CSS
-   cascade into their <text> elements caused inconsistent, oversized labels. */
-.js-plotly-plot, .js-plotly-plot * { font-family: revert !important; }
 
 .ledger-eyebrow {
     font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -189,13 +185,20 @@ with col2:
     fig2 = go.Figure(go.Bar(
         x=df_cause["root_cause"], y=df_cause["rate_%"],
         text=labels, textposition="outside",
-        textfont=dict(family="IBM Plex Mono, monospace", size=14, color="#e8e6de"),
+        textfont=dict(family="IBM Plex Mono, monospace", size=16, color="#e8e6de"),
         marker_color=colors, cliponaxis=False,
     ))
     fig2.update_layout(
         font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de"),
-        yaxis=dict(title="rate_%", range=[0, max(df_cause["rate_%"].max() * 1.25, 15)]),
-        xaxis=dict(title="root_cause"),
+        yaxis=dict(
+            title=dict(text="rate_%", font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de")),
+            tickfont=dict(family="IBM Plex Mono, monospace", size=12, color="#e8e6de"),
+            range=[0, max(df_cause["rate_%"].max() * 1.25, 15)],
+        ),
+        xaxis=dict(
+            title=dict(text="root_cause", font=dict(family="IBM Plex Mono, monospace", size=13, color="#e8e6de")),
+            tickfont=dict(family="IBM Plex Mono, monospace", size=12, color="#e8e6de"),
+        ),
         showlegend=False,
         margin=dict(t=40),
     )
