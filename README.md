@@ -2,6 +2,11 @@
 
 Built for the Razorpay AI Buildathon — **Track 03: AI Revenue Recovery**.
 
+**Live:**
+- Dashboard: https://revenue-recovery-dashboard.onrender.com
+- Backend API: https://revenue-recovery-agent-36nl.onrender.com
+- Source: https://github.com/gourikam/revenue-recovery-agent
+
 Diagnoses why a subscription/payment failed, decides a single bounded
 intervention (retry / payment link / Hinglish reminder / escalate), executes
 it, and logs every step to an audit trail — then reports honest recovery
@@ -16,29 +21,18 @@ so it never blindly retries a fraud-flagged card or retries forever.
 
 ## Architecture
 
-```
-synthetic_data.py  →  generates a batch of realistic failed-payment events
-        ↓
-diagnosis.py       →  rule-based root-cause classification (LLM fallback for
-                       ambiguous cases, via Groq)
-        ↓
-decision.py        →  bounded decision logic: picks ONE action, with
-                       explicit hard stopping rules (never retry fraud,
-                       max 3 retries, low-confidence → human)
-        ↓
-messaging.py       →  generates the customer-facing message (Hinglish
-                       reminder via LLM, or a payment-link template)
-        ↓
-recovery_engine.py →  orchestrates the above + simulates execution against
-                       Razorpay test-mode-style outcomes
-        ↓
-db.py              →  SQLite audit trail — every case, every decision,
-                       every step, nothing deleted
-        ↓
-dashboard.py        (Streamlit) → recovery rate, breakdown by root cause,
-main.py              (FastAPI)  → and an honest exception list of
-                                   unresolved cases
-```
+![Architecture diagram](./architecture-diagram.svg)
+
+**File map:**
+- `synthetic_data.py` — generates a batch of realistic failed-payment events
+- `diagnosis.py` — rule-based root-cause classification, LLM fallback via Groq
+- `decision.py` — bounded decision logic with hard stopping rules
+- `messaging.py` — Hinglish reminder / payment-link message generation
+- `razorpay_client.py` — real Razorpay API calls (payment links, webhook verification)
+- `recovery_engine.py` — orchestrates the full pipeline
+- `db.py` — SQLite audit trail
+- `app/main.py` — FastAPI backend, including the real-time `/webhook/razorpay` endpoint
+- `dashboard.py` — Streamlit dashboard, a pure API client of the backend
 
 ## Hard stopping rules (the safety bar)
 
