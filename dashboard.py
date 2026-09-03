@@ -13,7 +13,7 @@ st.set_page_config(page_title="AI Revenue Recovery Agent", layout="wide")
 # Render, and see the SAME data either way -- including real webhook cases
 # that only exist on whichever backend actually received them.
 st.sidebar.header("⚙️ Backend connection")
-default_url = st.session_state.get("backend_url", "http://localhost:8000")
+default_url = st.session_state.get("backend_url", "https://revenue-recovery-agent-36nl.onrender.com")
 backend_url = st.sidebar.text_input(
     "Backend URL", value=default_url,
     help="Point this at your local FastAPI server (http://localhost:8000) or "
@@ -22,7 +22,7 @@ backend_url = st.sidebar.text_input(
 st.session_state["backend_url"] = backend_url
 
 
-def api_get(path: str, timeout=15):
+def api_get(path: str, timeout=60):
     try:
         r = requests.get(f"{backend_url}{path}", timeout=timeout)
         r.raise_for_status()
