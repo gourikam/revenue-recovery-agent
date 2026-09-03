@@ -7,9 +7,9 @@ you have test-mode keys. The pipeline, decision logic, and audit trail work
 identically either way.
 """
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from app import db, diagnosis, decision, messaging, razorpay_client
+from app import db, diagnosis, decision, messaging, razorpay_client, voice
 
 random.seed(7)  # reproducible synthetic outcomes for demo consistency
 
@@ -100,10 +100,26 @@ def process_case(raw_case: dict, source: str = "batch") -> dict:
 
     real_link = result.get("payment_link_url")
     message = ""
+    voice_audio = None
     if dec["action"] == "send_hinglish_reminder":
         message = messaging.generate_hinglish_reminder(raw_case, diag["root_cause"], real_link=real_link)
+        # Real TTS synthesis of the Hinglish message -- optional, never blocks
+        # the pipeline if it fails (no network, quota, etc).
+        voice_audio = voice.synthesize_hinglish_voice(message)
+        if voice_audio:
+            db.log_event(case_id, "voice", "Synthesized Hinglish voice reminder (gTTS)")
     elif dec["action"] in ("send_payment_link", "retry_payment") and real_link:
         message = messaging.generate_payment_link_message(raw_case, diag["root_cause"], real_link=real_link)
+
+    # Mandate-linked retries follow a compliant spaced schedule instead of an
+    # instant retry -- decision.py computes this only for subscription-linked
+    # TRANSIENT_GATEWAY_ISSUE cases; everything else gets None here.
+    next_retry_at = None
+    if dec.get("next_retry_in_days") is not None:
+        next_retry_at = (datetime.utcnow() + timedelta(days=dec["next_retry_in_days"])).isoformat()
+        db.log_event(case_id, "decision",
+                     f"Mandate retry scheduled for {next_retry_at} "
+                     f"(+{dec['next_retry_in_days']}d, not instant)")
 
     retry_count = current.get("retry_count", 0) + (1 if dec["action"] == "retry_payment" else 0)
 
@@ -132,6 +148,8 @@ def process_case(raw_case: dict, source: str = "batch") -> dict:
         "payment_link_url": result.get("payment_link_url"),
         "is_live_razorpay": 1 if result.get("is_live") else 0,
         "source": source,
+        "next_retry_at": next_retry_at,
+        "voice_note": voice_audio,
     })
 
     return db.get_case(case_id)

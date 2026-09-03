@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from app import db, synthetic_data, recovery_engine, razorpay_client
 
@@ -20,7 +21,8 @@ def root():
     return {
         "service": "AI Revenue Recovery Agent",
         "endpoints": ["/generate-batch", "/run-batch", "/cases", "/cases/{case_id}/audit",
-                      "/metrics", "/check-pending-links", "/webhook/razorpay", "/reset", "/status"],
+                      "/cases/{case_id}/voice", "/metrics", "/check-pending-links",
+                      "/webhook/razorpay", "/reset", "/status"],
     }
 
 
@@ -58,6 +60,15 @@ def list_cases():
 @app.get("/cases/{case_id}/audit")
 def case_audit(case_id: str):
     return {"case": db.get_case(case_id), "audit_log": db.get_audit_log(case_id)}
+
+
+@app.get("/cases/{case_id}/voice")
+def case_voice(case_id: str):
+    """Returns the raw MP3 audio of a case's Hinglish voice reminder, if one was generated."""
+    audio = db.get_voice_note(case_id)
+    if audio is None:
+        raise HTTPException(status_code=404, detail="No voice note for this case")
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 @app.get("/metrics")

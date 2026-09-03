@@ -60,6 +60,8 @@ def init_db():
                 payment_link_url TEXT,          -- real Razorpay payment link url, if created
                 is_live_razorpay INTEGER DEFAULT 0,  -- 1 if this case used a real API call, 0 if simulated
                 source TEXT DEFAULT 'batch',    -- 'batch' (synthetic demo run) or 'webhook' (real Razorpay event)
+                next_retry_at TEXT,              -- for mandate-linked failures: compliant next retry date, not instant
+                voice_note BLOB,                 -- TTS audio of the Hinglish reminder, when generated
 
                 updated_at TEXT
             )
@@ -97,16 +99,45 @@ def log_event(case_id: str, stage: str, detail: str):
         )
 
 
+# All case columns EXCEPT voice_note (raw audio bytes) -- bytes can't be
+# JSON-serialized by FastAPI, so any endpoint returning case data as JSON
+# must never include the blob. has_voice_note flags its presence instead;
+# the actual audio is served separately via get_voice_note() / a binary endpoint.
+_CASE_COLUMNS_NO_BLOB = """
+    case_id, payment_id, subscription_id, customer_name, customer_phone,
+    amount_inr, currency, raw_failure_code, raw_failure_description, created_at,
+    root_cause, root_cause_confidence, diagnosis_method,
+    intervention, stopping_reason, retry_count, max_retries,
+    message_sent, execution_status, amount_recovered_inr,
+    payment_link_id, payment_link_url, is_live_razorpay, source,
+    next_retry_at, updated_at,
+    (voice_note IS NOT NULL) AS has_voice_note
+"""
+
+
 def get_case(case_id: str):
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
+        row = conn.execute(
+            f"SELECT {_CASE_COLUMNS_NO_BLOB} FROM cases WHERE case_id=?", (case_id,)
+        ).fetchone()
         return dict(row) if row else None
 
 
 def get_all_cases():
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM cases ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(
+            f"SELECT {_CASE_COLUMNS_NO_BLOB} FROM cases ORDER BY created_at DESC"
+        ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_voice_note(case_id: str):
+    """Returns raw MP3 bytes for a case's Hinglish voice reminder, or None."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT voice_note FROM cases WHERE case_id=?", (case_id,)
+        ).fetchone()
+        return row["voice_note"] if row and row["voice_note"] else None
 
 
 def get_audit_log(case_id: str = None):

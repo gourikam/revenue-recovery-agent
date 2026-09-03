@@ -241,12 +241,26 @@ if selected_case:
                 "final_status": case["execution_status"],
                 "source": case.get("source", "batch"),
             })
+            if case.get("next_retry_at"):
+                st.warning(
+                    f"Mandate-linked payment — next retry scheduled for "
+                    f"**{case['next_retry_at'][:10]}** (compliant spaced retry, not instant)."
+                )
         with c2:
             st.write("**Message sent to customer:**")
             st.info(case["message_sent"] or "(no customer-facing message for this action)")
             if case.get("payment_link_url"):
                 st.write("**Real Razorpay payment link:**")
                 st.markdown(f"[{case['payment_link_url']}]({case['payment_link_url']})")
+            if case.get("has_voice_note"):
+                st.write("**Voice reminder (Hinglish TTS):**")
+                audio_url = f"{backend_url}/cases/{selected_case}/voice"
+                try:
+                    audio_resp = requests.get(audio_url, timeout=30)
+                    audio_resp.raise_for_status()
+                    st.audio(audio_resp.content, format="audio/mpeg")
+                except Exception as e:
+                    st.caption(f"Voice note exists but couldn't be loaded: {e}")
             st.write("**Step-by-step audit log:**")
             for entry in log:
                 st.text(f"[{entry['timestamp']}] {entry['stage'].upper()}: {entry['detail']}")

@@ -28,11 +28,31 @@ so it never blindly retries a fraud-flagged card or retries forever.
 - `diagnosis.py` — rule-based root-cause classification, LLM fallback via Groq
 - `decision.py` — bounded decision logic with hard stopping rules
 - `messaging.py` — Hinglish reminder / payment-link message generation
+- `voice.py` — real text-to-speech synthesis of the Hinglish reminder
 - `razorpay_client.py` — real Razorpay API calls (payment links, webhook verification)
 - `recovery_engine.py` — orchestrates the full pipeline
 - `db.py` — SQLite audit trail
 - `app/main.py` — FastAPI backend, including the real-time `/webhook/razorpay` endpoint
 - `dashboard.py` — Streamlit dashboard, a pure API client of the backend
+
+## Two extra recovery capabilities
+
+**Hinglish voice reminders.** Every `send_hinglish_reminder` action also
+generates a real spoken audio file (via gTTS) of the message, playable
+directly in the dashboard's case detail view. Honest limitation: gTTS reads
+Roman-script Hinglish with Hindi phonetics, which is understandable but not
+native-quality — a production system would use a proper Indian-language TTS
+provider (Bhashini, ElevenLabs, or similar) for better pronunciation. This is
+real generated audio, not a mockup — just not production-polish quality.
+
+**Mandate-aware retry scheduling.** For failures on a subscription-linked
+payment (a `subscription_id` is present, meaning it's a recurring UPI
+Autopay / e-mandate charge, not a one-off card payment), a transient gateway
+failure doesn't get retried instantly. Instead the agent computes a spaced
+retry date (illustrative schedule: +1, +3, +5 days), since instantly
+re-attempting a failed mandate debit isn't how real recurring payments work
+in practice. Non-mandate, one-off payments still retry immediately as
+before — this logic only activates when `subscription_id` is present.
 
 ## Hard stopping rules (the safety bar)
 

@@ -9,6 +9,16 @@ alongside the action -- nothing happens silently.
 
 MAX_RETRIES = 3
 
+# For mandate-linked failures (a subscription_id present means this is a
+# recurring UPI Autopay / e-mandate payment, not a one-off card charge),
+# retries follow a spaced schedule rather than firing instantly. This mirrors
+# how real recurring-payment mandates are retried in practice -- banks and
+# NPCI don't allow (and customers don't respond well to) an immediate
+# re-attempt on the same failed debit. Day offsets here are illustrative of
+# a compliant spaced-retry pattern, not a verified NPCI specification --
+# call this out honestly if asked, rather than claiming regulatory precision.
+MANDATE_RETRY_SCHEDULE_DAYS = [1, 3, 5]
+
 # action space is intentionally small and explicit -- no open-ended "do whatever" agent behavior
 ACTIONS = [
     "retry_payment",
@@ -21,11 +31,12 @@ ACTIONS = [
 
 def decide(case: dict, diagnosis: dict) -> dict:
     """
-    Returns: {action, reason, stopping_reason (optional)}
+    Returns: {action, reason, stopping_reason (optional), next_retry_in_days (optional)}
     """
     cause = diagnosis["root_cause"]
     recoverable = diagnosis["is_recoverable"]
     retry_count = case.get("retry_count", 0)
+    is_mandate_payment = bool(case.get("subscription_id"))
 
     # --- HARD STOPPING RULES (compliance / safety first, checked before anything else) ---
     if cause == "CARD_BLOCKED_FRAUD":
@@ -68,10 +79,21 @@ def decide(case: dict, diagnosis: dict) -> dict:
 
     # --- Recoverable, within retry budget ---
     if cause == "TRANSIENT_GATEWAY_ISSUE":
+        if is_mandate_payment:
+            idx = min(retry_count, len(MANDATE_RETRY_SCHEDULE_DAYS) - 1)
+            days = MANDATE_RETRY_SCHEDULE_DAYS[idx]
+            return {
+                "action": "retry_payment",
+                "reason": f"Mandate-based recurring payment (subscription_id present) -- "
+                          f"following a compliant spaced retry schedule rather than "
+                          f"retrying instantly. Next attempt in {days} day(s).",
+                "stopping_reason": None,
+                "next_retry_in_days": days,
+            }
         return {
             "action": "retry_payment",
-            "reason": "Transient gateway/network issue -- safe to retry automatically "
-                      "with backoff.",
+            "reason": "Transient gateway/network issue on a one-off payment -- safe to "
+                      "retry automatically with backoff.",
             "stopping_reason": None,
         }
 
