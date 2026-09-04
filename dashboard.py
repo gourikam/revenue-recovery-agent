@@ -102,11 +102,17 @@ with st.expander("Real-time webhook endpoint (advanced — receives live Razorpa
 
 col_a, col_b, col_c = st.columns([1, 1, 2])
 with col_a:
-    n = st.number_input("Batch size", min_value=10, max_value=300, value=75, step=5)
+    n = st.number_input(
+        "Batch size", min_value=10, max_value=300, value=20, step=5,
+        help="Each case may trigger a real Razorpay API call and a real "
+             "voice synthesis call when LIVE MODE is on -- larger batches "
+             "take proportionally longer. 20-30 is comfortable for a live demo."
+    )
     if st.button("Run new batch", type="primary", use_container_width=True):
-        with st.spinner("Generating synthetic failures and running the agent... "
-                        "(may take a moment if the backend was asleep)"):
-            result, err = api_post("/run-batch", params={"n": int(n), "reset": True})
+        with st.spinner(f"Processing {int(n)} cases -- each may involve a real Razorpay "
+                        f"API call and voice synthesis, so this can take a couple minutes "
+                        f"for larger batches..."):
+            result, err = api_post("/run-batch", params={"n": int(n), "reset": True}, timeout=300)
         if err:
             st.error(f"Failed to run batch: {err}")
         else:

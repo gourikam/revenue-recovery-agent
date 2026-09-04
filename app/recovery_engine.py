@@ -76,7 +76,7 @@ def check_pending_links() -> dict:
     return {"checked": len(pending), "updated": updated}
 
 
-def process_case(raw_case: dict, source: str = "batch") -> dict:
+def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool = True) -> dict:
     case_id = raw_case["case_id"]
 
     # 1. DIAGNOSE
@@ -104,10 +104,14 @@ def process_case(raw_case: dict, source: str = "batch") -> dict:
     if dec["action"] == "send_hinglish_reminder":
         message = messaging.generate_hinglish_reminder(raw_case, diag["root_cause"], real_link=real_link)
         # Real TTS synthesis of the Hinglish message -- optional, never blocks
-        # the pipeline if it fails (no network, quota, etc).
-        voice_audio = voice.synthesize_hinglish_voice(message)
-        if voice_audio:
-            db.log_event(case_id, "voice", "Synthesized Hinglish voice reminder (gTTS)")
+        # the pipeline if it fails (no network, quota, etc). Skipped during
+        # batch runs to keep the demo button fast (a 75-case batch making 75
+        # real API calls plus dozens of real TTS calls can take minutes);
+        # always runs for webhook-sourced single cases, where it matters more.
+        if synthesize_voice:
+            voice_audio = voice.synthesize_hinglish_voice(message)
+            if voice_audio:
+                db.log_event(case_id, "voice", "Synthesized Hinglish voice reminder (gTTS)")
     elif dec["action"] in ("send_payment_link", "retry_payment") and real_link:
         message = messaging.generate_payment_link_message(raw_case, diag["root_cause"], real_link=real_link)
 
@@ -158,7 +162,7 @@ def process_case(raw_case: dict, source: str = "batch") -> dict:
 def process_batch(batch: list[dict]) -> list[dict]:
     results = []
     for raw_case in batch:
-        results.append(process_case(raw_case))
+        results.append(process_case(raw_case, source="batch", synthesize_voice=False))
     return results
 
 
