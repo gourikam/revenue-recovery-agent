@@ -120,21 +120,29 @@ test-mode outcomes so you can demo without live keys.
 
 ## What's simulated vs real
 
-- **With `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` set in `.env`:** the agent
-  creates a real Razorpay test-mode Payment Link via the API for every
-  retry/reminder/payment-link action. Click **"Check real payment links"**
-  in the dashboard to poll Razorpay and see if a link was actually paid
-  (use a [Razorpay test card](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
+- **Webhook-sourced cases (real Razorpay `payment.failed` events):** the
+  agent attempts a real Razorpay test-mode Payment Link via the API. Click
+  **"Check real payment links"** in the dashboard to poll Razorpay and see
+  if a link was actually paid (use a
+  [Razorpay test card](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
   to complete one for a live demo).
-- **Without keys:** falls back to a probability-based simulated outcome so
-  the whole pipeline still runs end to end with zero setup.
+- **Batch-sourced cases (the demo button):** simulated by design, not by
+  fallback. Firing 20+ real payment-link creation calls in rapid succession
+  reliably trips Razorpay's test-mode rate limit ("Too many requests"),
+  which would silently degrade an entire batch to simulation anyway and
+  make the batch demo unreliable. Rather than fight an undocumented
+  rate-limit ceiling, batch runs are simulated on purpose — they exist to
+  demonstrate measured recovery metrics at scale with a consistent,
+  honest methodology. The real, end-to-end proof (real diagnosis → real
+  decision → real payment link → real customer payment) comes from the
+  webhook path instead, one case at a time, where there's no burst risk.
 - Note on design: Razorpay (like all card networks, per RBI rules) doesn't
   allow silently re-charging a saved card without a pre-authorized
   recurring mandate — so "retry" here realistically means generating a
   fresh, real payment link rather than a hidden auto-charge. This is a
   deliberate, honest choice, not a shortcut.
 - Diagnosis, decision logic, stopping rules, and the audit trail are 100%
-  real regardless of Razorpay configuration.
+  real regardless of source or Razorpay configuration.
 
 ## Next steps if extending
 

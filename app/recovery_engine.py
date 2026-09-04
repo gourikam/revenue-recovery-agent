@@ -15,11 +15,20 @@ from app import db, diagnosis, decision, messaging, razorpay_client, voice
 random.seed(7)  # reproducible synthetic outcomes for demo consistency
 
 
-def execute_action(case: dict, action: str, message: str, reason: str) -> dict:
+def execute_action(case: dict, action: str, message: str, reason: str, attempt_real_api: bool = True) -> dict:
     """
     Tries a REAL Razorpay test-mode Payment Link first (if RAZORPAY_KEY_ID/SECRET
-    are configured). Falls back to a simulated outcome if Razorpay isn't
-    configured or the API call fails -- so the app always runs end to end.
+    are configured AND attempt_real_api is True). Falls back to a simulated
+    outcome otherwise -- so the app always runs end to end.
+
+    attempt_real_api=False is used for batch runs: firing 20+ payment-link
+    creation calls in rapid succession reliably trips Razorpay's test-mode
+    rate limit ("Too many requests"), which silently degrades an entire
+    batch to simulation anyway. Rather than fight an unknown rate-limit
+    ceiling, batch runs are simulated by design -- they exist to demonstrate
+    measured metrics at scale. Real API calls are reserved for
+    webhook-sourced single cases, where there's no burst risk and the real
+    call actually has a chance to succeed.
 
     Real path: link is created via the API and starts 'pending' -- whether it's
     actually 'recovered' depends on the customer paying it, checked later by
@@ -35,13 +44,15 @@ def execute_action(case: dict, action: str, message: str, reason: str) -> dict:
                 "payment_link_id": None, "payment_link_url": None}
 
     # retry_payment, send_payment_link, send_hinglish_reminder all funnel through
-    # a real payment link when Razorpay is configured (see module docstring for why)
-    link = razorpay_client.create_payment_link(case, description=reason)
-    if link is not None:
-        return {"status": "pending", "recovered_amount": 0, "is_live": True,
-                "payment_link_id": link["id"], "payment_link_url": link["short_url"]}
+    # a real payment link when Razorpay is configured AND this is a single
+    # (non-batch) case -- see docstring for why batch skips this entirely.
+    if attempt_real_api:
+        link = razorpay_client.create_payment_link(case, description=reason)
+        if link is not None:
+            return {"status": "pending", "recovered_amount": 0, "is_live": True,
+                    "payment_link_id": link["id"], "payment_link_url": link["short_url"]}
 
-    # --- fallback: simulated outcome, no Razorpay keys configured ---
+    # --- simulated outcome: no Razorpay keys, real call failed, or batch mode ---
     ease = case.get("_synthetic_ease", "medium")
     recovery_prob = {"easy": 0.75, "medium": 0.45, "hard": 0.15, "impossible": 0.0}[ease]
     recovered = random.random() < recovery_prob
@@ -77,7 +88,8 @@ def check_pending_links() -> dict:
     return {"checked": len(pending), "updated": updated}
 
 
-def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool = True) -> dict:
+def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool = True,
+                  attempt_real_api: bool = True) -> dict:
     case_id = raw_case["case_id"]
 
     # 1. DIAGNOSE
@@ -94,7 +106,8 @@ def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool =
 
     # 3. EXECUTE (tries a real Razorpay payment link first; message is built after,
     #    since it needs the real link if one was created)
-    result = execute_action(raw_case, dec["action"], message="", reason=dec["reason"])
+    result = execute_action(raw_case, dec["action"], message="", reason=dec["reason"],
+                            attempt_real_api=attempt_real_api)
     db.log_event(case_id, "execution", f"status={result['status']} "
                  f"recovered_amount={result['recovered_amount']} "
                  f"live={result['is_live']}")
@@ -161,16 +174,16 @@ def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool =
 
 
 def process_batch(batch: list[dict]) -> list[dict]:
-    live_mode = razorpay_client.is_configured()
+    # Batch runs are simulated by design (attempt_real_api=False) -- see
+    # execute_action's docstring for why: bursts of real payment-link calls
+    # reliably trip Razorpay's test-mode rate limit. Real API calls are
+    # reserved for webhook-sourced single cases (see app/main.py's
+    # /webhook/razorpay handler, which calls process_case with the default
+    # attempt_real_api=True).
     results = []
-    for i, raw_case in enumerate(batch):
-        results.append(process_case(raw_case, source="batch", synthesize_voice=False))
-        # Small pacing delay between real Razorpay API calls -- a batch firing
-        # 20+ payment-link creations with zero delay is a common way to trip
-        # test-mode rate limits, which silently degrades the whole batch to
-        # simulated outcomes. This is cheap insurance against that.
-        if live_mode and i < len(batch) - 1:
-            time.sleep(0.25)
+    for raw_case in batch:
+        results.append(process_case(raw_case, source="batch", synthesize_voice=False,
+                                    attempt_real_api=False))
     return results
 
 
