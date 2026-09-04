@@ -173,17 +173,27 @@ def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool =
     return db.get_case(case_id)
 
 
-def process_batch(batch: list[dict]) -> list[dict]:
-    # Batch runs are simulated by design (attempt_real_api=False) -- see
-    # execute_action's docstring for why: bursts of real payment-link calls
-    # reliably trip Razorpay's test-mode rate limit. Real API calls are
-    # reserved for webhook-sourced single cases (see app/main.py's
-    # /webhook/razorpay handler, which calls process_case with the default
-    # attempt_real_api=True).
+def process_batch(batch: list[dict], real_api_limit: int = 3) -> list[dict]:
+    """
+    Most of a batch is simulated by design -- see execute_action's docstring
+    for why (20+ rapid payment-link calls reliably trips Razorpay's
+    test-mode rate limit). But a handful of real attempts at the START of
+    the batch (small enough to stay under the rate limit, with retry/backoff
+    already in execute_action as extra insurance) means the batch itself can
+    genuinely recover real money on a few cases, not just prove the
+    architecture works via a separate webhook demo. Positional, not
+    action-aware -- if an early case resolves to escalate/no_action, it
+    doesn't consume a real attempt anyway since those actions never call
+    the API. A short pacing delay between the real attempts specifically
+    (not the whole batch) keeps that small burst safe.
+    """
     results = []
-    for raw_case in batch:
+    for i, raw_case in enumerate(batch):
+        attempt_real = i < real_api_limit
         results.append(process_case(raw_case, source="batch", synthesize_voice=False,
-                                    attempt_real_api=False))
+                                    attempt_real_api=attempt_real))
+        if attempt_real and i < real_api_limit - 1:
+            time.sleep(1.0)  # pacing only between the few real-attempt cases
     return results
 
 
