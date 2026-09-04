@@ -12,6 +12,7 @@ If no keys are configured, every function returns None and the caller falls
 back to simulated behavior -- so the app still runs with zero setup.
 """
 import os
+import time
 import razorpay
 from datetime import datetime
 from dotenv import load_dotenv
@@ -33,40 +34,63 @@ def get_client():
     return _client
 
 
-def create_payment_link(case: dict, description: str) -> dict | None:
+def create_payment_link(case: dict, description: str, max_retries: int = 2) -> dict | None:
     """
     Creates a REAL Razorpay test-mode payment link. Returns
     {id, short_url, status} or None if Razorpay isn't configured / call fails.
+
+    Retries transient failures (rate limits, brief network blips) with a
+    short backoff -- these are common when a batch fires many payment-link
+    calls in rapid succession, and Razorpay's test-mode accounts throttle
+    bursts. A failure here is logged into the CASE's own audit trail (not
+    just the server log) so it's diagnosable from the dashboard, not just
+    by digging through Render logs.
     """
     client = get_client()
     if client is None:
         return None
 
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            link = client.payment_link.create({
+                "amount": int(round(case["amount_inr"] * 100)),  # paise
+                "currency": "INR",
+                "accept_partial": False,
+                "description": description[:255],
+                "customer": {
+                    "name": case["customer_name"],
+                    "contact": case["customer_phone"],
+                },
+                "notify": {"sms": True, "email": False},
+                "reminder_enable": True,
+                "notes": {
+                    "case_id": case["case_id"],
+                    "source": "ai-revenue-recovery-agent",
+                },
+            })
+            return {
+                "id": link["id"],
+                "short_url": link["short_url"],
+                "status": link["status"],  # 'created', 'paid', 'cancelled', 'expired'
+            }
+        except Exception as e:
+            last_error = e
+            print(f"[razorpay_client] create_payment_link attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(0.6 * (attempt + 1))  # short backoff: 0.6s, then 1.2s
+
+    # All attempts exhausted -- log into the CASE's own audit trail (visible
+    # in the dashboard) rather than only the server console, so a batch that
+    # silently falls back to simulation is actually diagnosable.
     try:
-        link = client.payment_link.create({
-            "amount": int(round(case["amount_inr"] * 100)),  # paise
-            "currency": "INR",
-            "accept_partial": False,
-            "description": description[:255],
-            "customer": {
-                "name": case["customer_name"],
-                "contact": case["customer_phone"],
-            },
-            "notify": {"sms": True, "email": False},
-            "reminder_enable": True,
-            "notes": {
-                "case_id": case["case_id"],
-                "source": "ai-revenue-recovery-agent",
-            },
-        })
-        return {
-            "id": link["id"],
-            "short_url": link["short_url"],
-            "status": link["status"],  # 'created', 'paid', 'cancelled', 'expired'
-        }
-    except Exception as e:
-        print(f"[razorpay_client] create_payment_link failed: {e}")
-        return None
+        from app import db
+        db.log_event(case["case_id"], "execution",
+                     f"REAL Razorpay API call failed after {max_retries + 1} attempts: "
+                     f"{last_error}. Falling back to simulated outcome.")
+    except Exception:
+        pass  # never let audit logging itself break the pipeline
+    return None
 
 
 def fetch_payment_link_status(link_id: str) -> str | None:

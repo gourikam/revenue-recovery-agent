@@ -7,6 +7,7 @@ you have test-mode keys. The pipeline, decision logic, and audit trail work
 identically either way.
 """
 import random
+import time
 from datetime import datetime, timedelta
 
 from app import db, diagnosis, decision, messaging, razorpay_client, voice
@@ -160,9 +161,16 @@ def process_case(raw_case: dict, source: str = "batch", synthesize_voice: bool =
 
 
 def process_batch(batch: list[dict]) -> list[dict]:
+    live_mode = razorpay_client.is_configured()
     results = []
-    for raw_case in batch:
+    for i, raw_case in enumerate(batch):
         results.append(process_case(raw_case, source="batch", synthesize_voice=False))
+        # Small pacing delay between real Razorpay API calls -- a batch firing
+        # 20+ payment-link creations with zero delay is a common way to trip
+        # test-mode rate limits, which silently degrades the whole batch to
+        # simulated outcomes. This is cheap insurance against that.
+        if live_mode and i < len(batch) - 1:
+            time.sleep(0.25)
     return results
 
 
