@@ -43,9 +43,12 @@ def generate_batch(n: int = 75):
 
 @app.post("/run-batch")
 def run_batch(n: int = 75, reset: bool = True):
-    """Full pipeline: generate synthetic batch -> diagnose -> decide -> execute -> log."""
+    """Full pipeline: generate synthetic batch -> diagnose -> decide -> execute -> log.
+    reset=True clears only PREVIOUS BATCH cases -- real webhook-sourced cases
+    (and their audit trail) are always preserved, never silently wiped by
+    clicking the demo button."""
     if reset:
-        db.reset_db()
+        db.reset_batch_cases()
     batch = synthetic_data.generate_batch(n)
     results = recovery_engine.process_batch(batch)
     metrics = recovery_engine.compute_metrics()

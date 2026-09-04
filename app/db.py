@@ -160,7 +160,25 @@ def get_pending_live_cases():
         return [dict(r) for r in rows]
 
 
+def reset_batch_cases():
+    """
+    Clears ONLY batch-sourced demo cases -- preserves real webhook-sourced
+    cases and their audit trail. This is what /run-batch uses by default,
+    since real evidence (a genuinely recovered payment) must never be
+    silently wiped out by clicking a demo button.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM audit_log WHERE case_id IN "
+            "(SELECT case_id FROM cases WHERE source='batch')"
+        )
+        conn.execute("DELETE FROM cases WHERE source='batch'")
+
+
 def reset_db():
+    """Wipes EVERYTHING, including real webhook-sourced cases. Only for
+    deliberate full resets (the explicit /reset endpoint), never called
+    automatically by a batch run."""
     with get_conn() as conn:
         conn.execute("DROP TABLE IF EXISTS cases")
         conn.execute("DROP TABLE IF EXISTS audit_log")
