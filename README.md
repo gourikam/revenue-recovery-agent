@@ -1,6 +1,5 @@
 # AI Revenue Recovery Agent
 
-Built for the Razorpay AI Buildathon — **Track 03: AI Revenue Recovery**.
 
 **Live:**
 - Dashboard: https://revenue-recovery-dashboard.onrender.com
